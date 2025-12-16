@@ -71,15 +71,12 @@ def build_tensors(df, epochs, sensors, feature_cols):
     N = len(sensors)
     F = len(feature_cols)
 
-    epoch_to_idx = {e: i for i, e in enumerate(epochs)}
-    sensor_to_idx = {s: i for i, s in enumerate(sensors)}
-
     X = np.zeros((T, N, F), dtype=np.float32)
     M = np.zeros((T, N, 1), dtype=np.float32)
 
     for _, row in df.iterrows():
-        t = epoch_to_idx[row["epoch"]]
-        n = sensor_to_idx[row["moteid"]]
+        t = row["epoch"]
+        n = row["moteid"]
 
         X[t, n] = row[feature_cols].values
         M[t, n] = 1.0
