@@ -21,16 +21,21 @@ def calculate_distances(coordinates: pd.DataFrame) -> np.array:
     dist_matrix = np.linalg.norm(coords[:, np.newaxis] - coords[np.newaxis, :], axis=-1)
     return dist_matrix    
 
-def calculate_adjacency_matrix(dist_matrix, k):
+def calculate_adjacency_matrix(dist_matrix, k, exclude):
     D = dist_matrix.copy()
     np.fill_diagonal(D, np.inf)
+    N = D.shape[0]
+
+    #to exclude sensors set distances to infinity
+    for sensor in exclude:
+        for i in range(N):
+            D[i, sensor] = np.inf
+            D[sensor, i] = np.inf
 
     #find k-nearest neighbors
-    k = 5
     knn_idx = np.argsort(D, axis=1)[:, :k]
 
     #build adjacency matrix
-    N = D.shape[0]
     A = np.zeros((N, N))
 
     for i in range(N):
@@ -61,6 +66,25 @@ def calculate_adjacency_matrix(dist_matrix, k):
 
     return torch.tensor(A_norm, dtype=torch.float32)
 
+def build_tensors(df, epochs, sensors, feature_cols):
+    T = len(epochs)
+    N = len(sensors)
+    F = len(feature_cols)
+
+    epoch_to_idx = {e: i for i, e in enumerate(epochs)}
+    sensor_to_idx = {s: i for i, s in enumerate(sensors)}
+
+    X = np.zeros((T, N, F), dtype=np.float32)
+    M = np.zeros((T, N, 1), dtype=np.float32)
+
+    for _, row in df.iterrows():
+        t = epoch_to_idx[row["epoch"]]
+        n = sensor_to_idx[row["moteid"]]
+
+        X[t, n] = row[feature_cols].values
+        M[t, n] = 1.0
+
+    return X, M
 
 def calculate_anomalies():
     pass
