@@ -2,19 +2,21 @@ import torch
 from torch.utils.data import Dataset
 import numpy as np
 
+"""Since the adjacency matrix is static, we do not include it in the dataset and let the model take care of it separately 
+The class does not include train/val/test split logic, which must be handled externally."""
 class STBGNNDataset(Dataset):
     def __init__(
         self,
         X,
         M,
-        window_size=12,
+        window_size=6,
         mask_ratio=0.2,
         split="train",
         seed=42
     ):
         """
-        X: (T, N, F)
-        M: (T, N, 1)
+        X: (T, N, F), graph data
+        M: (T, N, 1), natural missing sensors per epoch
         """
         self.X = torch.tensor(X, dtype=torch.float32)
         self.M = torch.tensor(M, dtype=torch.float32)
@@ -35,72 +37,44 @@ class STBGNNDataset(Dataset):
         return len(self.valid_centers)
 
     def __getitem__(self, idx):
-        if(not(self._is_valid_center(idx))):
-            raise IndexError("Index out of valid center range.")
         
-        t = idx
+        t = self.valid_centers[idx] #map to valid centers automatically ([0]->timestep W-1, [-1]-> timestep T-W)
 
         #windows
-        #past windows
-        x_past = self.X[t - self.W + 1 : t + 1]      # (W, N, F)
-        m_past = self.M[t - self.W + 1 : t + 1]      # (W, N, 1)
+        #past window
+        x_past = self.X[t - self.W + 1 : t + 1]  # (W, N, F)
 
-        #future windows
+        #future window
         x_future = self.X[t + 1 : t + self.W + 1]   # (W, N, F)
-        m_future = self.M[t + 1 : t + self.W + 1]   # (W, N, 1)
 
-        # Reverse future for backward branch
-        x_bwd = torch.flip(x_future, dims=[0])
-        m_bwd = torch.flip(m_future, dims=[0])
+        target = self.X[t]  # (N, F). center of the window
 
-        #apply artificial mask for training 
+        #what was masked
+        loss_mask = torch.zeros(self.N, dtype=torch.float32)
+
         if self.split == "train":
-            mask_train = self._apply_sensor_mask(m_past)
-        else:
-            mask_train = m_past.clone()
-
-        #masked tensors for training, otherwise original
-        x_fwd = x_past * mask_train
-        x_bwd = x_bwd * mask_train
-
-        # Loss mask: artificially masked & originally observed
-        mask_loss = (m_past - mask_train).clamp(min=0)
-
-        target = self.X[t]  # (N, F)
-
+            natural_mask_t = self.M[t].squeeze(-1) # (N,)
+            observed_indices = natural_mask_t.nonzero(as_tuple=True)[0].numpy()
+            
+            if len(observed_indices) > 0:
+                n_mask = max(1, int(len(observed_indices) * self.mask_ratio))
+                
+                # select sensors from those observed at time t
+                masked_indices = self.rng.choice(observed_indices, size=n_mask, replace=False)
+                
+                # apply mask
+                # x_past shape is (W+1, N, F). Time t is at index -1.
+                x_past[-1, masked_indices, :] = 0.0
+                
+                # mark these sensors for loss calculation
+                loss_mask[masked_indices] = 1.0
+        
         return {
-            "x_fwd": x_fwd,
-            "x_bwd": x_bwd,
-            "mask_obs_past": m_past,
-            "mask_obs_future": m_future,
-            "mask_train": mask_train,
-            "mask_loss": mask_loss,
-            "target": target
+            "x_past_masked": x_past,  #(W+1, N, F)
+            "x_future": x_future,     #(W, N, F)
+            "target": target,         #(N, F)
+            "loss_mask": loss_mask    #(N,)
         }
     
     def _is_valid_center(self, t):
         return t >= self.W - 1 and t < self.T - self.W
-    
-    def _apply_sensor_mask(self, m):
-        """
-        m: (W, N, 1)
-        """
-        mask = m.clone()
-
-        # sensors observed at center time
-        observed = m[-1, :, 0].nonzero(as_tuple=True)[0]
-
-        n_mask = int(len(observed) * self.mask_ratio)
-
-        if n_mask == 0:
-            return mask
-
-        masked_sensors = self.rng.choice(
-            observed.cpu().numpy(),
-            size=n_mask,
-            replace=False
-        )
-
-        mask[:, masked_sensors, :] = 0.0
-        return mask
-

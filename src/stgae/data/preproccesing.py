@@ -21,47 +21,114 @@ def calculate_distances(coordinates: pd.DataFrame) -> np.array:
     dist_matrix = np.linalg.norm(coords[:, np.newaxis] - coords[np.newaxis, :], axis=-1)
     return dist_matrix    
 
+# def calculate_adjacency_matrix(dist_matrix, k, exclude):
+#     D = dist_matrix.copy()
+#     np.fill_diagonal(D, np.inf)
+#     N = D.shape[0]
+
+#     #to exclude sensors set distances to infinity
+#     for sensor in exclude:
+#         for i in range(N):
+#             D[i, sensor] = np.inf
+#             D[sensor, i] = np.inf
+
+#     #find k-nearest neighbors
+#     knn_idx = np.argsort(D, axis=1)[:, :k]
+
+#     #build adjacency matrix
+#     A = np.zeros((N, N))
+
+#     for i in range(N):
+#         for j in knn_idx[i]:
+#             A[i, j] = 1
+
+#     #ensure symetric
+#     A = np.maximum(A, A.T)
+
+#     #add weights edges
+#     eps = 1e-6
+#     W = np.zeros_like(A)
+
+#     for i in range(N):
+#         for j in range(N):
+#             if A[i, j] == 1:
+#                 W[i, j] = 1.0 / (D[i, j] + eps)
+
+
+#     #normalize adjacency for GCN
+
+#     #self loops
+#     W_tilde = W + np.eye(N)
+#     #symetric normalization
+#     deg = W_tilde.sum(axis=1)
+#     D_inv_sqrt = np.diag(1.0 / np.sqrt(deg))
+#     A_norm = D_inv_sqrt @ W_tilde @ D_inv_sqrt
+
+#     return torch.tensor(A_norm, dtype=torch.float32)
+
+import numpy as np
+import torch
+
 def calculate_adjacency_matrix(dist_matrix, k, exclude):
-    D = dist_matrix.copy()
-    np.fill_diagonal(D, np.inf)
+    """
+    Calculates the normalized adjacency matrix for a graph, 
+    physically removing the excluded sensors from the matrix.
+    
+    Output shape: (N_new, N_new) where N_new = N_original - len(exclude)
+    """
+    N_orig = dist_matrix.shape[0]
+
+    print(N_orig, len(exclude))
+    
+    # 1. Identify indices to keep
+    # Create a list of indices that are NOT in the exclude list
+    keep_indices = [i for i in range(N_orig) if i not in exclude]
+    
+    # 2. Slice the original matrix to keep only valid sensors
+    # np.ix_ allows us to slice both rows and columns simultaneously
+    D = dist_matrix[np.ix_(keep_indices, keep_indices)].copy()
+    
+    # The new size of the matrix
     N = D.shape[0]
 
-    #to exclude sensors set distances to infinity
-    for sensor in exclude:
-        for i in range(N):
-            D[i, sensor] = np.inf
-            D[sensor, i] = np.inf
+    # 3. Standard k-NN Logic (Same as before, but on the reduced matrix)
+    np.fill_diagonal(D, np.inf)
 
-    #find k-nearest neighbors
-    knn_idx = np.argsort(D, axis=1)[:, :k]
+    # Find k-nearest neighbors
+    # Note: If k >= N, we clip it to N-1 to avoid errors
+    k_actual = min(k, N - 1)
+    knn_idx = np.argsort(D, axis=1)[:, :k_actual]
 
-    #build adjacency matrix
+    # Build binary adjacency matrix
     A = np.zeros((N, N))
 
     for i in range(N):
         for j in knn_idx[i]:
             A[i, j] = 1
 
-    #ensure symetric
+    # Ensure symmetric
     A = np.maximum(A, A.T)
 
-    #add weights edges
+    # Add weighted edges
     eps = 1e-6
     W = np.zeros_like(A)
 
     for i in range(N):
         for j in range(N):
             if A[i, j] == 1:
+                # D contains the distances of the kept sensors
                 W[i, j] = 1.0 / (D[i, j] + eps)
 
-
-    #normalize adjacency for GCN
-
-    #self loops
+    # 4. Normalize adjacency for GCN
+    
+    # Self loops
     W_tilde = W + np.eye(N)
-    #symetric normalization
+    
+    # Symmetric normalization: D_inv_sqrt @ W_tilde @ D_inv_sqrt
     deg = W_tilde.sum(axis=1)
-    D_inv_sqrt = np.diag(1.0 / np.sqrt(deg))
+    # Avoid division by zero if a node is disconnected (though unlikely with self-loops)
+    D_inv_sqrt = np.diag(1.0 / np.sqrt(deg + eps)) 
+    
     A_norm = D_inv_sqrt @ W_tilde @ D_inv_sqrt
 
     return torch.tensor(A_norm, dtype=torch.float32)
