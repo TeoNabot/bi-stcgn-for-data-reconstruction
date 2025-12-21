@@ -77,8 +77,6 @@ def calculate_adjacency_matrix(dist_matrix, k, exclude):
     Output shape: (N_new, N_new) where N_new = N_original - len(exclude)
     """
     N_orig = dist_matrix.shape[0]
-
-    print(N_orig, len(exclude))
     
     # 1. Identify indices to keep
     # Create a list of indices that are NOT in the exclude list
