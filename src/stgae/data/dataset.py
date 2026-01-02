@@ -10,7 +10,7 @@ class STBGNNDataset(Dataset):
         X,
         M,
         window_size=6,
-        mask_ratio=0.2,
+        mask_ratio=0.5,
         split="train",
         seed=42
     ):
