@@ -31,7 +31,7 @@ class STBGNNDataset(Dataset):
         self.valid_centers = list(
             range(self.W - 1, self.T - self.W)
         )
-
+        self.seed = seed
         self.rng = np.random.default_rng(seed)
 
     def __len__(self):

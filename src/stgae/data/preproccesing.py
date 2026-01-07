@@ -6,10 +6,6 @@ import torch
 
 columns = ['date', 'time', 'epoch', 'moteid', 'temperature', 'humidity', 'light', 'voltage']
 
-def preprocess():
-    paths = load_config()['paths']    
-    raw_data_path = Path(paths['raw_data'])
-
 def calculate_distances(coordinates: pd.DataFrame) -> np.array:
     #receives a df with columns ['moteid', 'x', 'y']
     #returns a matrix of distances
@@ -85,6 +81,19 @@ def calculate_adjacency_matrix(dist_matrix, k, exclude):
     return torch.tensor(A_norm, dtype=torch.float32)
 
 def build_tensors(df, epochs, sensors, feature_cols):
+    """
+    Vectorized build of tensors from a long dataframe.
+
+    Parameters
+    - df: pandas DataFrame containing at least columns 'epoch' and 'moteid' plus feature_cols
+    - epochs: sequence of epoch identifiers (order defines time indices 0..T-1)
+    - sensors: sequence of sensor identifiers (order defines node indices 0..N-1)
+    - feature_cols: list of feature column names
+
+    Assumes each (epoch, moteid) pair appears at most once. Rows with epoch/moteid
+    values not present in the provided `epochs`/`sensors` lists are ignored.
+    """
+
     T = len(epochs)
     N = len(sensors)
     F = len(feature_cols)
@@ -92,12 +101,26 @@ def build_tensors(df, epochs, sensors, feature_cols):
     X = np.zeros((T, N, F), dtype=np.float32)
     M = np.zeros((T, N, 1), dtype=np.float32)
 
-    for _, row in df.iterrows():
-        t = row["epoch"]
-        n = row["moteid"]
+    # Map dataframe epoch/moteid values to index positions defined by the provided lists.
+    # Using pandas.Categorical is fast and preserves the order of the provided categories.
+    epoch_cat = pd.Categorical(df['epoch'], categories=epochs, ordered=True)
+    mote_cat = pd.Categorical(df['moteid'], categories=sensors, ordered=True)
 
-        X[t, n] = row[feature_cols].values
-        M[t, n] = 1.0
+    t_idx = epoch_cat.codes  # -1 where epoch not in categories
+    n_idx = mote_cat.codes   # -1 where moteid not in categories
+
+    valid = (t_idx >= 0) & (n_idx >= 0)
+    if not np.all(valid):
+        # silently ignore rows that don't belong to the provided epochs/sensors
+        t_idx = t_idx[valid]
+        n_idx = n_idx[valid]
+        feats = df.loc[valid, feature_cols].to_numpy(dtype=np.float32)
+    else:
+        feats = df[feature_cols].to_numpy(dtype=np.float32)
+
+    # Bulk assign feature values and mask
+    X[t_idx, n_idx] = feats
+    M[t_idx, n_idx, 0] = 1.0
 
     return X, M
 

@@ -3,3 +3,4 @@ paths:
   raw_data: "data/raw"
   preprocessed_data: "data/preprocessed"
   teaser_data : "data/teaser"
+  checkpoints: "src/stgae/model/checkpoints"

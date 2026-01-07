@@ -39,9 +39,7 @@ def train_step(batch, model, optimizer, device):
     # We use reduction='none' to handle the mask manually
     mse_loss = F.mse_loss(reconstruction, target, reduction='none')
 
-    # Collapse feature dimension (average over features): (B, N)
-    # If your features are not normalized (e.g. speed vs flow), 
-    # ensure this averaging makes sense.
+    # average over features; note that input is normalized
     node_error = mse_loss.mean(dim=-1)
 
     # Apply the mask: Zero out errors for nodes that were NOT masked

@@ -6,3 +6,7 @@ venv/
 *.egg-info/
 
 __pycache__
+
+.gitignore
+checkpoints/
+main_old.ipynb
