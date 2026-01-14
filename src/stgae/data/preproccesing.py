@@ -6,6 +6,39 @@ import torch
 
 columns = ['date', 'time', 'epoch', 'moteid', 'temperature', 'humidity', 'light', 'voltage']
 
+import pandas as pd
+import numpy as np
+
+def filter_data_errors(df):
+    """
+    Filters rows based on physical constraints of the Intel Lab dataset.
+    """
+    # Define constraints
+    constraints = {
+        'voltage': (2.0, 3.0),      # Critical: Low battery causes other sensor errors
+        'temperature': (8.0, 38.0), # Office environment limits
+        'humidity': (0.1, 99.9),    # Exclude sensor saturation (0% or 100%)
+        'light': (0.0, 2000.0)       # Exclude glitchy high values
+    }
+
+    # Create a mask for valid rows (initially all True)
+    mask = pd.Series(True, index=df.index)
+
+    for col, (min_val, max_val) in constraints.items():
+        if col in df.columns:
+            # Update mask: Keep row only if value is within range
+            col_mask = (df[col] >= min_val) & (df[col] <= max_val)
+            mask = mask & col_mask
+
+    # Apply the mask to drop rows
+    df_clean = df[mask].copy()
+    
+    # Report how much data was dropped
+    dropped_count = len(df) - len(df_clean)
+    print(f"Dropped {dropped_count} rows ({dropped_count/len(df):.1%}) due to physical constraints.")
+    
+    return df_clean
+
 def calculate_distances(coordinates: pd.DataFrame) -> np.array:
     #receives a df with columns ['moteid', 'x', 'y']
     #returns a matrix of distances
@@ -80,49 +113,38 @@ def calculate_adjacency_matrix(dist_matrix, k, exclude):
 
     return torch.tensor(A_norm, dtype=torch.float32)
 
-def build_tensors(df, epochs, sensors, feature_cols):
+def build_tensors(df, epochs, sensors, feature_cols, time_cols):
     """
-    Vectorized build of tensors from a long dataframe.
-
-    Parameters
-    - df: pandas DataFrame containing at least columns 'epoch' and 'moteid' plus feature_cols
-    - epochs: sequence of epoch identifiers (order defines time indices 0..T-1)
-    - sensors: sequence of sensor identifiers (order defines node indices 0..N-1)
-    - feature_cols: list of feature column names
-
-    Assumes each (epoch, moteid) pair appears at most once. Rows with epoch/moteid
-    values not present in the provided `epochs`/`sensors` lists are ignored.
+    Builds tensors where Time is unified per Epoch (Canonical Time).
     """
-
     T = len(epochs)
     N = len(sensors)
     F = len(feature_cols)
 
     X = np.zeros((T, N, F), dtype=np.float32)
-    M = np.zeros((T, N, 1), dtype=np.float32)
+    M = np.zeros((T, N), dtype=np.float32)
 
-    # Map dataframe epoch/moteid values to index positions defined by the provided lists.
-    # Using pandas.Categorical is fast and preserves the order of the provided categories.
     epoch_cat = pd.Categorical(df['epoch'], categories=epochs, ordered=True)
     mote_cat = pd.Categorical(df['moteid'], categories=sensors, ordered=True)
 
-    t_idx = epoch_cat.codes  # -1 where epoch not in categories
-    n_idx = mote_cat.codes   # -1 where moteid not in categories
-
+    t_idx = epoch_cat.codes
+    n_idx = mote_cat.codes
+    
     valid = (t_idx >= 0) & (n_idx >= 0)
-    if not np.all(valid):
-        # silently ignore rows that don't belong to the provided epochs/sensors
-        t_idx = t_idx[valid]
-        n_idx = n_idx[valid]
+
+    if np.any(valid):
+        # Extract features
         feats = df.loc[valid, feature_cols].to_numpy(dtype=np.float32)
-    else:
-        feats = df[feature_cols].to_numpy(dtype=np.float32)
+        X[t_idx[valid], n_idx[valid]] = feats
+        M[t_idx[valid], n_idx[valid]] = 1.0
 
-    # Bulk assign feature values and mask
-    X[t_idx, n_idx] = feats
-    M[t_idx, n_idx, 0] = 1.0
+    # --- 2. Build T_enc (Canonical Time Features) ---
+    
+    # Reindex to master epochs list to ensure alignment 0..T-1
+    # fillna(0) handles missing epochs (blackouts)
+    T_enc = df[time_cols].reindex(epochs).fillna(0.0).to_numpy(dtype=np.float32)
 
-    return X, M
+    return X, M, T_enc
 
 def get_columns():
     return columns

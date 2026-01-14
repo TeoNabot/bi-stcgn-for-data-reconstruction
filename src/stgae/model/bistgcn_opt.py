@@ -35,29 +35,36 @@ class GraphConv(nn.Module):
     def forward(self, x):
         """
         x input: (B, N, F, T)
-        output: (B, N, OutF, T)
         """
-        # x: (B, N, F, T) -> permute to (T, B, N, F) for matmul
-        x_tmp = x.permute(3, 0, 1, 2) 
-        
-        # Linear projection: (T, B, N, F) @ (F, OutF) -> (T, B, N, OutF)
-        x_mul = torch.matmul(x_tmp, self.weight)
-        
-        # Permute back to spatial first for graph prop: (B, N, OutF, T)
-        x_mul = x_mul.permute(1, 2, 3, 0)   # (B, N, OutF, T)
-        # Graph propagation: (N, N) @ (B, N, OutF, T)
-        # adj is (N, N), x is (B, N, OutF, T)
-        # Result needs to be (B, N, OutF, T)
-        # We can treat B*N as a batch dimension for the graph prop
+        # 1. Linear Projection (applied to every node/time independently)
+        # (B, N, F, T) -> (B, N, OutF, T)
+        # Using matmul is fine, but einsum is often cleaner/safer for this
+        x_mul = torch.einsum('bnft, fo -> bnot', x, self.weight)
+
         B, N, F_out, T = x_mul.shape
-        x_flat = x_mul.reshape(B * T, N, F_out)
+
+        # 2. Graph Propagation
+        # We need to multiply adj (N, N) with x (..., N, ...)
+        # We can merge B and T into a single "batch" dimension to broadcast adj
         
-        # (B*T, N, N) @ (B*T, N, F_out) -> (B*T, N, F_out)
-        # Note: self.adj is broadcasted
+        # Current shape: (B, N, F_out, T)
+        # We need N to be the distinct dimension for matmul, and (B, T) to be the batch
+        
+        # Permute to put B and T together: (B, T, N, F_out)
+        x_tmp = x_mul.permute(0, 3, 1, 2) 
+        
+        # Now we can safely collapse B and T: (B*T, N, F_out)
+        x_flat = x_tmp.reshape(B * T, N, F_out)
+        
+        # (N, N) @ (B*T, N, F_out) -> (B*T, N, F_out)
         out = torch.matmul(self.adj, x_flat)
         
-        # Reshape back to (B, N, F, T)
-        return out.reshape(B, N, F_out, T)
+        # 3. Restore Shape
+        # Unpack: (B, T, N, F_out)
+        out = out.reshape(B, T, N, F_out)
+        
+        # Permute back to your standard format: (B, N, F_out, T)
+        return out.permute(0, 2, 3, 1)
 
 class TemporalConvLayer(nn.Module):
     """

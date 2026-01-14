@@ -44,7 +44,7 @@ pyzmq==27.1.0
 setuptools==80.9.0
 six==1.17.0
 stack-data==0.6.3
--e git+https://github.com/TeoNabot/stgae-for-anomaly-detection.git@d7e7143c7d3b1d79fc87c128b6325e028f7abb27#egg=stgae_for_anomaly_detection
+-e git+https://github.com/TeoNabot/stgae-for-anomaly-detection.git@5fff6291e22ee63f04d5ead2c5f9e64cdc19c03e#egg=stgae_for_anomaly_detection
 sympy==1.14.0
 torch==2.9.1
 tornado==6.5.3
