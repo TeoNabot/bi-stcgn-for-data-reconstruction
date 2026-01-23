@@ -1,63 +1,48 @@
+
 import torch
 import torch.nn.functional as F
 
 def train_step(batch, model, optimizer, device):
-    """
-    Performs a single training step for the BiSTGCN model.
-    """
     model.train()
     
-    # 1. Unpack and Move to Device
-    # ------------------------------------------------------------------
-    # NOTE: Keys must match the return dictionary of STBGNNDataset
-    # Shapes coming from DataLoader will be (Batch, Time, Nodes, Features)
-    # ------------------------------------------------------------------
+    x_past = batch["x_past_masked"].to(device)     #(B, W+1, N, F_target)
+    x_future = batch["x_future_masked"].to(device) 
     
-    # x_past: Includes time t at the end (masked)
-    x_past = batch["x_past_masked"].to(device)  # Shape: (B, W_past, N, F)
+    target = batch["target"].to(device)            #(B, N, F_target)
+    loss_mask = batch["loss_mask"].to(device)      
     
-    # x_future: Includes time t at the start (masked)
-    x_future = batch["x_future_masked"].to(device) # Shape: (B, W_future, N, F)
+    t_past = batch["time_past"].to(device)        
+    t_future = batch["time_future"].to(device)    
     
-    # target: Ground truth at time t
-    target = batch["target"].to(device)     # Shape: (B, N, F)
+    B, W, N, _ = x_past.shape
     
-    # loss_mask: 1.0 for artificially masked nodes, 0.0 otherwise
-    loss_mask = batch["loss_mask"].to(device) # Shape: (B, N)
+    #unsqueeze dim 2 to get (B, W+1, 1, F_time), expand dim to N to get (B, W+1, N, F_time)
+    t_past_expanded = t_past.unsqueeze(2).expand(-1, -1, N, -1)
+    t_future_expanded = t_future.unsqueeze(2).expand(-1, -1, N, -1)
 
-    # 2. Forward Pass
-    # ------------------------------------------------------------------
+    #forward pass
     optimizer.zero_grad()
-    
-    # Model inputs: (B, T, N, F)
-    # Model reconstructs time t using both directions
-    reconstruction = model(x_past, x_future) # Output: (B, N, F)
 
-    # 3. Loss Calculation
-    # ------------------------------------------------------------------
-    # Calculate squared error for every element: (B, N, F)
-    # We use reduction='none' to handle the mask manually
-    mse_loss = F.mse_loss(reconstruction, target, reduction='none')
+    reconstruction = model(x_past, x_future, t_past_expanded, t_future_expanded) 
 
-    # average over features; note that input is normalized
-    node_error = mse_loss.mean(dim=-1)
+    #loss
+    mse_loss = F.mse_loss(reconstruction, target, reduction='none') 
 
-    # Apply the mask: Zero out errors for nodes that were NOT masked
-    # We only want to learn from the "holes" we created
-    masked_error = node_error * loss_mask # (B, N)
+    node_error = mse_loss.mean(dim=-1) 
 
-    # Normalize: Sum of Error / Number of Masked Nodes
-    # Adding epsilon to denominator to prevent NaN if a batch has 0 masks
+    masked_error = node_error * loss_mask 
     num_masked = loss_mask.sum()
     final_loss = masked_error.sum() / (num_masked + 1e-6)
 
-    # 4. Backward Pass
-    # ------------------------------------------------------------------
+    #backward àss
     final_loss.backward()
     
-    # Clip gradients to prevent exploding gradients in deep GNNs/RNNs
+    #clip gradients to ensure stability
     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
     
     optimizer.step()
 
     return final_loss.item()
+
+
+
