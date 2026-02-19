@@ -1,13 +1,11 @@
 # Bi-Directional Spatio-Temporal Graph for Data Reconstruction
 
-This repository implements a Bi-Directional Spatio-Temporal Graph Neural Network designed for robust data reconstruction. By capturing both the non-Euclidean spatial dependencies between graph nodes and the bidirectional temporal dynamics—leveraging both past and future contexts—the model effectively recovers missing, sparse, or corrupted data points within complex network structures.
+This repository implements a Bi-Directional Spatio-Temporal Graph Neural Network designed for data reconstruction in the Intel Berkley Research Lab Dataset. By capturing both spatial dependencies between graph nodes and the bidirectional temporal dynamics—leveraging both past and future contexts—the model recovers structurally missing data points.
 
 ## Key Features
 
 * **Bi-Directional Temporal Modeling:** Utilizes forward and backward temporal information to provide richer context for accurate data imputation.
-* **Spatial Dependency Extraction:** Models complex topological structures across the network to understand how neighboring nodes influence one another.
-* **Robust Reconstruction:** Designed to handle discontinuous or sparse inputs to reliably estimate unobserved states.
-* **Streamlined Training Pipeline:** Built in Python with a clean, straightforward train/validation split for efficient model evaluation without unnecessary computational overhead.
+* **Spatial Dependency Extraction:** Models spatial structure across the network to improve data reconstruction.
 
 ## How to use
 This project includes a main.ipynb notebook (inside the notebooks directory), from which the project can be executed. 
